@@ -130,7 +130,7 @@ class Parser {
     }
     sharedStrings!.decompress();
     var document = XmlDocument.parse(utf8.decode(sharedStrings.content));
-    _excel._xmlFiles["xl/${_excel._sharedStringsTarget}"] = document;
+    _excel._xmlFiles[_excel._absSharedStringsTarget] = document;
 
     document.findAllElements('si').forEach((node) {
       _parseSharedString(node);
@@ -238,11 +238,12 @@ class Parser {
 
   // Reading the styles from the excel file.
   void _parseStyles(String _stylesTarget) {
-    var styles = _excel._archive.findFile('xl/$_stylesTarget');
+    var resolvedStylesTarget = _resolveTarget(_stylesTarget);
+    var styles = _excel._archive.findFile(resolvedStylesTarget);
     if (styles != null) {
       styles.decompress();
       var document = XmlDocument.parse(utf8.decode(styles.content));
-      _excel._xmlFiles['xl/$_stylesTarget'] = document;
+      _excel._xmlFiles[resolvedStylesTarget] = document;
 
       _excel._fontStyleList = <_FontStyle>[];
       _excel._patternFill = <String>[];
@@ -523,9 +524,25 @@ class Parser {
     return 0;
   }
 
+  /// Resolve an OPC relationship target into an archive entry path.
+  ///
+  /// Targets in `xl/_rels/workbook.xml.rels` are resolved relative to the
+  /// `xl/` part directory, so `worksheets/sheet1.xml` becomes
+  /// `xl/worksheets/sheet1.xml`. Targets may also be absolute from the
+  /// package root (`/xl/worksheets/sheet1.xml`), which is equally valid
+  /// per OPC and emitted by writers such as openpyxl. Naively prefixing
+  /// `xl/` to an absolute target yields `xl//xl/...`, which no archive
+  /// entry matches, so the lookup must normalize both forms.
+  String _resolveTarget(String target) {
+    if (target.isEmpty) return target;
+    if (target.startsWith('/')) return target.substring(1);
+    return 'xl/$target';
+  }
+
   void _parseTable(XmlElement node) {
     var name = node.getAttribute('name')!;
     var target = _worksheetTargets[node.getAttribute('r:id')];
+    var resolvedTarget = _resolveTarget(target ?? '');
 
     if (_excel._sheetMap['$name'] == null) {
       _excel._sheetMap['$name'] = Sheet._(_excel, '$name');
@@ -533,7 +550,7 @@ class Parser {
 
     Sheet sheetObject = _excel._sheetMap['$name']!;
 
-    var file = _excel._archive.findFile('xl/$target');
+    var file = _excel._archive.findFile(resolvedTarget);
     file!.decompress();
 
     var content = XmlDocument.parse(utf8.decode(file.content));
@@ -559,8 +576,8 @@ class Parser {
 
     _excel._sheets[name] = sheet;
 
-    _excel._xmlFiles['xl/$target'] = content;
-    _excel._xmlSheetId[name] = 'xl/$target';
+    _excel._xmlFiles[resolvedTarget] = content;
+    _excel._xmlSheetId[name] = resolvedTarget;
 
     _normalizeTable(sheetObject);
   }
